@@ -1727,8 +1727,13 @@
       this.isSliding = false;
       this.slideTimer = 0;
       this.gravity = -38;
-      this.baseSpeed = 22;
-      this.currentSpeed = this.baseSpeed;
+
+      // Progressive Speed Config: starts gentle and scales up to a thrilling max cap
+      this.initialSpeed = 15.0; // Gentle accessible pace at match start
+      this.maxSpeed = 34.0;     // Top speed cap
+      this.currentSpeed = this.initialSpeed;
+      this.gameTime = 0;        // Elapsed running time in seconds
+      this.stumblePenalty = 0;  // Temporary speed loss after stumble
       this.footstepTimer = 0;
 
       // Stumble & Chaser System (Iconic Temple Run System)
@@ -2351,6 +2356,9 @@
     /* --- Game State Management --- */
     startGame() {
       this.state = 'PLAYING';
+      this.gameTime = 0;
+      this.stumblePenalty = 0;
+      this.currentSpeed = this.initialSpeed;
       this.chasersDistance = 3.0; // Beasts surge right on your tail at match start!
       document.getElementById('start-screen').style.display = 'none';
       document.getElementById('hud').style.display = 'flex';
@@ -2386,7 +2394,9 @@
       this.isJumping = false;
       this.isSliding = false;
       this.slideTimer = 0;
-      this.currentSpeed = this.baseSpeed;
+      this.gameTime = 0;
+      this.stumblePenalty = 0;
+      this.currentSpeed = this.initialSpeed;
       this.isStumbling = false;
       this.stumbleTimer = 0;
       this.chasersDistance = 3.0;
@@ -2422,8 +2432,8 @@
       }
 
       this.isStumbling = true;
-      this.stumbleTimer = 5.0; // 5 seconds alert
-      this.currentSpeed = Math.max(16, this.currentSpeed * 0.78); // Momentary speed drop
+      this.stumbleTimer = 4.5;
+      this.stumblePenalty = 5.5; // Sudden temporary speed drop that recovers smoothly
 
       sound.playMeow(true);
       sound.playBeastGrowl();
@@ -2500,16 +2510,28 @@
     }
 
     updateGameplay(dt, time) {
-      // 1. Progressive speed increase over distance
-      this.distance += (this.currentSpeed * dt) * 0.3;
-      this.currentSpeed = this.baseSpeed + Math.min(this.distance * 0.015, 26.0);
+      // 1. Time-based progressive speed with capped maximum
+      this.gameTime += dt;
+      // Scales gradually from initialSpeed (15) to maxSpeed (34) over ~110 seconds of run
+      const speedProgress = Math.min(this.gameTime / 110.0, 1.0);
+      const easedProgress = Math.sin((speedProgress * Math.PI) / 2); // Smooth ease-out acceleration curve
+      const baseTargetSpeed = this.initialSpeed + (this.maxSpeed - this.initialSpeed) * easedProgress;
 
+      // Stumble penalty recovery (smoothly restores speed over ~2.2 seconds)
+      if (this.stumblePenalty > 0) {
+        this.stumblePenalty = Math.max(0, this.stumblePenalty - dt * 2.5);
+      }
+
+      this.currentSpeed = Math.max(this.initialSpeed * 0.75, baseTargetSpeed - this.stumblePenalty);
+
+      this.distance += (this.currentSpeed * dt) * 0.3;
       this.cat.mesh.position.z += this.currentSpeed * dt;
 
-      // 2. Smooth Lane Interpolation (Lerp) & banking tilt
+      // 2. Smooth Lane Interpolation (Lerp) & banking tilt (turning responsiveness scales with speed)
       const catX = this.cat.mesh.position.x;
       const xDiff = this.targetX - catX;
-      this.cat.mesh.position.x += xDiff * dt * 14;
+      const turnLerpRate = Math.min(14.0 + (this.currentSpeed - this.initialSpeed) * 0.2, 19.0);
+      this.cat.mesh.position.x += xDiff * dt * turnLerpRate;
       this.cat.mesh.rotation.z = -xDiff * 0.12;
 
       // 3. Jump Physics & Abyss check
