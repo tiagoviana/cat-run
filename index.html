@@ -1692,7 +1692,7 @@
      4. GAME ENGINE & TRACK GENERATION
      ========================================================================== */
 
-  const LANES = [-2.7, 0, 2.7];
+  const LANES = [2.7, 0, -2.7];
   const CHUNK_LEN = 32;
   const ACTIVE_CHUNKS = 9;
 
@@ -1864,8 +1864,8 @@
 
       this.chasers = [
         { obj: beastCenter, offsetX: 0, offsetZ: 0.3, phase: 0 },
-        { obj: beastLeft, offsetX: -1.7, offsetZ: -0.3, phase: 1.8 },
-        { obj: beastRight, offsetX: 1.7, offsetZ: -0.3, phase: 3.4 }
+        { obj: beastLeft, offsetX: 1.7, offsetZ: -0.3, phase: 1.8 },
+        { obj: beastRight, offsetX: -1.7, offsetZ: -0.3, phase: 3.4 }
       ];
 
       // 3. Generate initial track chunks
@@ -1892,28 +1892,28 @@
       // Parapets / Side Curbs
       const curbGeo = new THREE.BoxGeometry(0.7, 0.8, CHUNK_LEN);
       const curbL = new THREE.Mesh(curbGeo, Materials.stone);
-      curbL.position.set(-4.5, 0.3, CHUNK_LEN / 2);
+      curbL.position.set(4.5, 0.3, CHUNK_LEN / 2);
       curbL.receiveShadow = true;
       chunkGroup.add(curbL);
 
       const curbR = new THREE.Mesh(curbGeo, Materials.stone);
-      curbR.position.set(4.5, 0.3, CHUNK_LEN / 2);
+      curbR.position.set(-4.5, 0.3, CHUNK_LEN / 2);
       curbR.receiveShadow = true;
       chunkGroup.add(curbR);
 
       // B. Stone Pillars with Glowing Torches
       for (let pz = 6; pz < CHUNK_LEN; pz += 13) {
-        this.createPillarAndTorch(chunkGroup, -4.6, pz, true);
-        this.createPillarAndTorch(chunkGroup, 4.6, pz, false);
+        this.createPillarAndTorch(chunkGroup, 4.6, pz, true);
+        this.createPillarAndTorch(chunkGroup, -4.6, pz, false);
       }
 
       // Deep supports into abyss
       const supportGeo = new THREE.CylinderGeometry(0.9, 1.4, 25, 8);
       const supL = new THREE.Mesh(supportGeo, Materials.stone);
-      supL.position.set(-4.0, -13, CHUNK_LEN / 2);
+      supL.position.set(4.0, -13, CHUNK_LEN / 2);
       chunkGroup.add(supL);
       const supR = new THREE.Mesh(supportGeo, Materials.stone);
-      supR.position.set(4.0, -13, CHUNK_LEN / 2);
+      supR.position.set(-4.0, -13, CHUNK_LEN / 2);
       chunkGroup.add(supR);
 
       this.scene.add(chunkGroup);
@@ -1945,16 +1945,16 @@
 
       const sconceGeo = new THREE.CylinderGeometry(0.18, 0.08, 0.4, 6);
       const sconce = new THREE.Mesh(sconceGeo, Materials.chaserBeast);
-      sconce.position.set(x + (isLeft ? 0.35 : -0.35), 2.1, z);
+      sconce.position.set(x + (isLeft ? -0.35 : 0.35), 2.1, z);
       parentGroup.add(sconce);
 
       const flame = new THREE.Sprite(Materials.fireSprite.clone());
       flame.scale.set(1.4, 1.8, 1.0);
-      flame.position.set(x + (isLeft ? 0.35 : -0.35), 2.5, z);
+      flame.position.set(x + (isLeft ? -0.35 : 0.35), 2.5, z);
       parentGroup.add(flame);
 
       const torchLight = new THREE.PointLight(0xff7722, 1.4, 14, 2);
-      torchLight.position.set(x + (isLeft ? 0.35 : -0.35), 2.5, z);
+      torchLight.position.set(x + (isLeft ? -0.35 : 0.35), 2.5, z);
       parentGroup.add(torchLight);
 
       this.torches.push({ light: torchLight, sprite: flame, seed: Math.random() * 100 });
@@ -2137,12 +2137,12 @@
     createObstacleQuina(lane, z) {
       const group = new THREE.Group();
       const isLeft = lane === 0;
-      const x = isLeft ? -2.25 : 2.25;
+      const x = isLeft ? 2.25 : -2.25;
       group.position.set(x, 0.6, z);
 
       // Cracked jagged stone corner block jutting out
       const quinaGeo = new THREE.BoxGeometry(1.2, 1.2, 1.6);
-      quinaGeo.rotateY(isLeft ? 0.35 : -0.35);
+      quinaGeo.rotateY(isLeft ? -0.35 : 0.35);
       const quinaMesh = new THREE.Mesh(quinaGeo, Materials.mossStone);
       quinaMesh.castShadow = true;
       group.add(quinaMesh);
