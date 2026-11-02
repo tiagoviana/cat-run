@@ -110,15 +110,14 @@
     }
 
     .hud-stat-box {
-      background: rgba(10, 20, 28, 0.85);
+      background: rgba(10, 20, 28, 0.92);
       border: 2px solid #b58934;
       border-radius: 12px;
       padding: 10px 18px;
       display: flex;
       align-items: center;
       gap: 12px;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65), inset 0 0 12px rgba(212, 175, 55, 0.2);
-      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65), inset 0 0 10px rgba(212, 175, 55, 0.15);
     }
 
     .hud-icon {
@@ -285,8 +284,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(4, 9, 14, 0.8);
-      backdrop-filter: blur(8px);
+      background: rgba(4, 9, 14, 0.88);
       pointer-events: auto;
       z-index: 20;
       transition: opacity 0.3s ease;
@@ -748,6 +746,15 @@
 
       this.masterGain.connect(compressor);
       compressor.connect(this.ctx.destination);
+
+      // Pre-baked white noise buffer for slide scraping
+      const sampleRate = this.ctx.sampleRate;
+      const bufferSize = Math.floor(sampleRate * 0.35);
+      this.slideNoiseBuffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+      const data = this.slideNoiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.5));
+      }
     }
 
     resume() {
@@ -764,31 +771,25 @@
       return this.enabled;
     }
 
-    // Footstep tap on ancient stone floor
+    // Footstep tap on ancient stone floor (ultra-lightweight direct gain envelope)
     playFootstep(leftFoot = true) {
       if (!this.enabled || !this.ctx) return;
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
-
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(leftFoot ? 180 : 215, now);
-      filter.Q.setValueAtTime(3.0, now);
 
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(leftFoot ? 120 : 135, now);
-      osc.frequency.exponentialRampToValueAtTime(38, now + 0.04);
+      osc.frequency.setValueAtTime(leftFoot ? 110 : 125, now);
+      osc.frequency.exponentialRampToValueAtTime(32, now + 0.035);
 
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
 
-      osc.connect(filter);
-      filter.connect(gain);
+      osc.connect(gain);
       gain.connect(this.masterGain);
 
       osc.start(now);
-      osc.stop(now + 0.04);
+      osc.stop(now + 0.035);
     }
 
     // Swoosh on Jump
@@ -811,19 +812,12 @@
       osc.stop(now + 0.22);
     }
 
-    // Sliding scrape swoosh
+    // Sliding scrape swoosh (reusing pre-baked noise buffer)
     playSlide() {
-      if (!this.enabled || !this.ctx) return;
+      if (!this.enabled || !this.ctx || !this.slideNoiseBuffer) return;
       const now = this.ctx.currentTime;
-      const bufferSize = Math.floor(this.ctx.sampleRate * 0.35);
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.5));
-      }
-
       const noise = this.ctx.createBufferSource();
-      noise.buffer = buffer;
+      noise.buffer = this.slideNoiseBuffer;
 
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'bandpass';
@@ -1280,37 +1274,52 @@
      3. PROCEDURAL 3D MODELS (Three.js Primitives)
      ========================================================================== */
 
+  const SharedGeometries = {
+    coinBody: (() => {
+      const g = new THREE.SphereGeometry(0.38, 8, 6);
+      g.scale(0.4, 0.8, 1.2);
+      return g;
+    })(),
+    coinTail: (() => {
+      const g = new THREE.ConeGeometry(0.35, 0.35, 4);
+      g.scale(0.2, 1.0, 1.0);
+      g.rotateX(Math.PI / 2);
+      return g;
+    })(),
+    coinDorsal: (() => {
+      const g = new THREE.ConeGeometry(0.15, 0.28, 3);
+      g.scale(0.2, 1.0, 1.0);
+      g.rotateZ(0.2);
+      return g;
+    })(),
+    trackFloor: new THREE.BoxGeometry(9.6, 1.4, 32),
+    trackCurb: new THREE.BoxGeometry(0.7, 0.8, 32),
+    trackSupport: new THREE.CylinderGeometry(0.9, 1.4, 25, 6),
+    trackPillar: new THREE.BoxGeometry(0.9, 3.2, 0.9),
+    trackSconce: new THREE.CylinderGeometry(0.18, 0.08, 0.4, 5)
+  };
+
   const Materials = {
-    stone: new THREE.MeshStandardMaterial({
-      map: Textures.createStone(false),
-      roughness: 0.85,
-      metalness: 0.1
+    stone: new THREE.MeshLambertMaterial({
+      map: Textures.createStone(false)
     }),
-    mossStone: new THREE.MeshStandardMaterial({
-      map: Textures.createStone(true),
-      roughness: 0.9,
-      metalness: 0.05
+    mossStone: new THREE.MeshLambertMaterial({
+      map: Textures.createStone(true)
     }),
-    wood: new THREE.MeshStandardMaterial({
-      map: Textures.createWood(),
-      roughness: 0.8,
-      metalness: 0.05
+    wood: new THREE.MeshLambertMaterial({
+      map: Textures.createWood()
     }),
-    catFur: new THREE.MeshStandardMaterial({
-      map: Textures.createCatFur(),
-      roughness: 0.7,
-      metalness: 0.05
+    catFur: new THREE.MeshLambertMaterial({
+      map: Textures.createCatFur()
     }),
-    goldFish: new THREE.MeshStandardMaterial({
+    goldFish: new THREE.MeshPhongMaterial({
       map: Textures.createGoldFish(),
-      roughness: 0.3,
-      metalness: 0.8,
+      shininess: 90,
+      specular: 0xffe066,
       emissive: 0x4a3a05
     }),
-    chaserBeast: new THREE.MeshStandardMaterial({
-      color: 0x181c20,
-      roughness: 0.9,
-      metalness: 0.2
+    chaserBeast: new THREE.MeshLambertMaterial({
+      color: 0x181c20
     }),
     glowingEye: new THREE.MeshBasicMaterial({
       color: 0xff1e00
@@ -1318,13 +1327,11 @@
     catEye: new THREE.MeshBasicMaterial({
       color: 0x2ecc71
     }),
-    catHat: new THREE.MeshStandardMaterial({
-      color: 0x795548,
-      roughness: 0.85
+    catHat: new THREE.MeshLambertMaterial({
+      color: 0x795548
     }),
-    catHatBand: new THREE.MeshStandardMaterial({
-      color: 0x2c3e50,
-      roughness: 0.5
+    catHatBand: new THREE.MeshLambertMaterial({
+      color: 0x2c3e50
     }),
     fireSprite: new THREE.SpriteMaterial({
       map: Textures.createFireSprite(),
@@ -1342,7 +1349,7 @@
     const bodyGroup = new THREE.Group();
     catGroup.add(bodyGroup);
 
-    const torsoGeo = new THREE.CylinderGeometry(0.36, 0.38, 1.15, 12);
+    const torsoGeo = new THREE.CylinderGeometry(0.36, 0.38, 1.15, 10);
     torsoGeo.rotateX(Math.PI / 2);
     const torso = new THREE.Mesh(torsoGeo, Materials.catFur);
     torso.position.y = 0.55;
@@ -1351,7 +1358,7 @@
 
     // Satchel Backpack
     const bagGeo = new THREE.BoxGeometry(0.42, 0.22, 0.36);
-    const bagMat = new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.8 });
+    const bagMat = new THREE.MeshLambertMaterial({ color: 0x5d4037 });
     const backpack = new THREE.Mesh(bagGeo, bagMat);
     backpack.position.set(0, 0.95, -0.05);
     backpack.castShadow = true;
@@ -1359,7 +1366,7 @@
 
     // Buckle
     const buckleGeo = new THREE.BoxGeometry(0.1, 0.08, 0.04);
-    const buckleMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f, metalness: 0.8, roughness: 0.3 });
+    const buckleMat = new THREE.MeshPhongMaterial({ color: 0xf1c40f, shininess: 80, specular: 0xffffff });
     const buckle = new THREE.Mesh(buckleGeo, buckleMat);
     buckle.position.set(0, 0.96, -0.24);
     bodyGroup.add(buckle);
@@ -1377,7 +1384,7 @@
 
     // Cream Snout
     const snoutGeo = new THREE.BoxGeometry(0.26, 0.18, 0.2);
-    const creamMat = new THREE.MeshStandardMaterial({ color: 0xffeedd, roughness: 0.7 });
+    const creamMat = new THREE.MeshLambertMaterial({ color: 0xffeedd });
     const snout = new THREE.Mesh(snoutGeo, creamMat);
     snout.position.set(0, -0.08, 0.3);
     headGroup.add(snout);
@@ -1636,26 +1643,18 @@
   function createGoldenFishCoin() {
     const coinGroup = new THREE.Group();
 
-    const bodyGeo = new THREE.SphereGeometry(0.38, 12, 10);
-    bodyGeo.scale(0.4, 0.8, 1.2);
-    const body = new THREE.Mesh(bodyGeo, Materials.goldFish);
+    const body = new THREE.Mesh(SharedGeometries.coinBody, Materials.goldFish);
     coinGroup.add(body);
 
-    const tailGeo = new THREE.ConeGeometry(0.35, 0.35, 4);
-    tailGeo.scale(0.2, 1.0, 1.0);
-    tailGeo.rotateX(Math.PI / 2);
-    const tail = new THREE.Mesh(tailGeo, Materials.goldFish);
+    const tail = new THREE.Mesh(SharedGeometries.coinTail, Materials.goldFish);
     tail.position.set(0, 0, -0.45);
     coinGroup.add(tail);
 
-    const dorsalGeo = new THREE.ConeGeometry(0.15, 0.28, 3);
-    dorsalGeo.scale(0.2, 1.0, 1.0);
-    dorsalGeo.rotateZ(0.2);
-    const dorsal = new THREE.Mesh(dorsalGeo, Materials.goldFish);
+    const dorsal = new THREE.Mesh(SharedGeometries.coinDorsal, Materials.goldFish);
     dorsal.position.set(0, 0.3, 0);
     coinGroup.add(dorsal);
 
-    coinGroup.castShadow = true;
+    // Coins omit castShadow for massive mobile GPU draw-call savings
     return coinGroup;
   }
 
@@ -1663,8 +1662,8 @@
   function createPowerupMesh(type) {
     const group = new THREE.Group();
     if (type === 'MAGNET') {
-      const ringGeo = new THREE.TorusGeometry(0.45, 0.08, 8, 16);
-      const ringMat = new THREE.MeshStandardMaterial({ color: 0x2ecc71, emissive: 0x145a32, roughness: 0.3 });
+      const ringGeo = new THREE.TorusGeometry(0.45, 0.08, 6, 12);
+      const ringMat = new THREE.MeshLambertMaterial({ color: 0x2ecc71 });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       group.add(ring);
 
@@ -1675,11 +1674,11 @@
       group.add(leaf);
     } else {
       const shieldTalismanGeo = new THREE.OctahedronGeometry(0.42);
-      const shieldMat = new THREE.MeshStandardMaterial({ color: 0x3498db, emissive: 0x1b4f72, roughness: 0.2 });
+      const shieldMat = new THREE.MeshLambertMaterial({ color: 0x3498db });
       const shield = new THREE.Mesh(shieldTalismanGeo, shieldMat);
       group.add(shield);
 
-      const orbitGeo = new THREE.TorusGeometry(0.65, 0.04, 6, 20);
+      const orbitGeo = new THREE.TorusGeometry(0.65, 0.04, 6, 14);
       const orbitMat = new THREE.MeshBasicMaterial({ color: 0x85c1e9 });
       const orbit = new THREE.Mesh(orbitGeo, orbitMat);
       orbit.rotation.x = Math.PI / 3;
@@ -1694,13 +1693,16 @@
 
   const LANES = [2.7, 0, -2.7];
   const CHUNK_LEN = 32;
-  const ACTIVE_CHUNKS = 9;
+  const ACTIVE_CHUNKS = 5;
 
   class GameApp {
     constructor() {
       this.canvas = document.getElementById('webgl-canvas');
       this.width = window.innerWidth;
       this.height = window.innerHeight;
+
+      // Mobile detection for high performance on Android/Firefox/iOS
+      this.isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || ('ontouchstart' in window);
 
       // Game States
       this.state = 'START';
@@ -1709,6 +1711,12 @@
       this.multiplier = 1;
       this.coinStreak = 0;
       this.highScore = parseInt(localStorage.getItem('catTempleRun_highScore') || '0', 10);
+
+      // Reusable collision / math cache to eliminate garbage collection stutters
+      this._catBox = new THREE.Box3();
+      this._lastHudDist = -1;
+      this._lastHudCoins = -1;
+      this._lastHudMult = -1;
 
       // Player Movement & Physics
       this.currentLane = 1;
@@ -1750,6 +1758,7 @@
 
       // Lighting & Ambience
       this.dirLight = null;
+      this.catLanternLight = null;
       this.torches = [];
 
       // Touch / Gesture Controls
@@ -1779,42 +1788,53 @@
       requestAnimationFrame(this.animate);
     }
 
-    /* --- Three.js Setup --- */
+    /* --- Three.js Setup (Optimized for Mobile / Firefox) --- */
     initThree() {
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color(0x08121a);
-      this.scene.fog = new THREE.FogExp2(0x08121a, 0.016);
+      this.scene.fog = new THREE.FogExp2(0x08121a, 0.018);
 
-      this.camera = new THREE.PerspectiveCamera(65, this.width / this.height, 0.1, 350);
+      this.camera = new THREE.PerspectiveCamera(65, this.width / this.height, 0.1, 260);
 
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        antialias: true,
-        powerPreference: 'high-performance'
+        antialias: !this.isMobile,
+        powerPreference: 'high-performance',
+        precision: this.isMobile ? 'mediump' : 'highp'
       });
       this.renderer.setSize(this.width, this.height);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      // Clamp DPR to avoid massive fillrate overhead on high-DPI smartphone screens
+      const maxDpr = this.isMobile ? 1.25 : 1.75;
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr));
+
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.type = this.isMobile ? THREE.BasicShadowMap : THREE.PCFShadowMap;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.toneMappingExposure = 1.15;
 
       this.updateCameraLayout();
 
-      const ambientLight = new THREE.AmbientLight(0x2d4659, 0.95);
+      const ambientLight = new THREE.AmbientLight(0x354e63, 1.05);
       this.scene.add(ambientLight);
+
+      // Dynamic warm torch lantern aura following cat (replaces 36+ forward point lights)
+      this.catLanternLight = new THREE.PointLight(0xff8833, 1.8, 16, 2);
+      this.catLanternLight.position.set(0, 2.2, 0);
+      this.scene.add(this.catLanternLight);
 
       this.dirLight = new THREE.DirectionalLight(0xffecd0, 1.25);
       this.dirLight.position.set(15, 30, 10);
       this.dirLight.castShadow = true;
-      this.dirLight.shadow.mapSize.width = 1024;
-      this.dirLight.shadow.mapSize.height = 1024;
+      const shadowRes = this.isMobile ? 512 : 1024;
+      this.dirLight.shadow.mapSize.width = shadowRes;
+      this.dirLight.shadow.mapSize.height = shadowRes;
       this.dirLight.shadow.camera.near = 5;
-      this.dirLight.shadow.camera.far = 70;
-      this.dirLight.shadow.camera.left = -14;
-      this.dirLight.shadow.camera.right = 14;
-      this.dirLight.shadow.camera.top = 22;
-      this.dirLight.shadow.camera.bottom = -14;
+      this.dirLight.shadow.camera.far = 60;
+      this.dirLight.shadow.camera.left = -10;
+      this.dirLight.shadow.camera.right = 10;
+      this.dirLight.shadow.camera.top = 18;
+      this.dirLight.shadow.camera.bottom = -10;
       this.scene.add(this.dirLight);
     }
 
@@ -1883,22 +1903,18 @@
       chunkGroup.position.z = zPos;
 
       // A. Stone Bridge Floor (3 lanes wide)
-      const floorGeo = new THREE.BoxGeometry(9.6, 1.4, CHUNK_LEN);
-      const floorMesh = new THREE.Mesh(floorGeo, Materials.stone);
+      const floorMesh = new THREE.Mesh(SharedGeometries.trackFloor, Materials.stone);
       floorMesh.position.set(0, -0.7, CHUNK_LEN / 2);
       floorMesh.receiveShadow = true;
       chunkGroup.add(floorMesh);
 
       // Parapets / Side Curbs
-      const curbGeo = new THREE.BoxGeometry(0.7, 0.8, CHUNK_LEN);
-      const curbL = new THREE.Mesh(curbGeo, Materials.stone);
+      const curbL = new THREE.Mesh(SharedGeometries.trackCurb, Materials.stone);
       curbL.position.set(4.5, 0.3, CHUNK_LEN / 2);
-      curbL.receiveShadow = true;
       chunkGroup.add(curbL);
 
-      const curbR = new THREE.Mesh(curbGeo, Materials.stone);
+      const curbR = new THREE.Mesh(SharedGeometries.trackCurb, Materials.stone);
       curbR.position.set(-4.5, 0.3, CHUNK_LEN / 2);
-      curbR.receiveShadow = true;
       chunkGroup.add(curbR);
 
       // B. Stone Pillars with Glowing Torches
@@ -1908,11 +1924,10 @@
       }
 
       // Deep supports into abyss
-      const supportGeo = new THREE.CylinderGeometry(0.9, 1.4, 25, 8);
-      const supL = new THREE.Mesh(supportGeo, Materials.stone);
+      const supL = new THREE.Mesh(SharedGeometries.trackSupport, Materials.stone);
       supL.position.set(4.0, -13, CHUNK_LEN / 2);
       chunkGroup.add(supL);
-      const supR = new THREE.Mesh(supportGeo, Materials.stone);
+      const supR = new THREE.Mesh(SharedGeometries.trackSupport, Materials.stone);
       supR.position.set(-4.0, -13, CHUNK_LEN / 2);
       chunkGroup.add(supR);
 
@@ -1936,15 +1951,13 @@
     }
 
     createPillarAndTorch(parentGroup, x, z, isLeft) {
-      const pillarGeo = new THREE.BoxGeometry(0.9, 3.2, 0.9);
-      const pillar = new THREE.Mesh(pillarGeo, Materials.mossStone);
+      const pillar = new THREE.Mesh(SharedGeometries.trackPillar, Materials.mossStone);
       pillar.position.set(x, 1.2, z);
       pillar.castShadow = true;
       pillar.receiveShadow = true;
       parentGroup.add(pillar);
 
-      const sconceGeo = new THREE.CylinderGeometry(0.18, 0.08, 0.4, 6);
-      const sconce = new THREE.Mesh(sconceGeo, Materials.chaserBeast);
+      const sconce = new THREE.Mesh(SharedGeometries.trackSconce, Materials.chaserBeast);
       sconce.position.set(x + (isLeft ? -0.35 : 0.35), 2.1, z);
       parentGroup.add(sconce);
 
@@ -1953,11 +1966,8 @@
       flame.position.set(x + (isLeft ? -0.35 : 0.35), 2.5, z);
       parentGroup.add(flame);
 
-      const torchLight = new THREE.PointLight(0xff7722, 1.4, 14, 2);
-      torchLight.position.set(x + (isLeft ? -0.35 : 0.35), 2.5, z);
-      parentGroup.add(torchLight);
-
-      this.torches.push({ light: torchLight, sprite: flame, seed: Math.random() * 100 });
+      // Store torch reference without adding expensive per-torch PointLight
+      this.torches.push({ sprite: flame, seed: Math.random() * 100, z: parentGroup.position.z + z });
     }
 
     populateChunkContents(chunkData) {
@@ -2100,10 +2110,7 @@
       flameR.scale.set(1.1, 1.5, 1.0);
       group.add(flameR);
 
-      const archLight = new THREE.PointLight(0xff5511, 1.8, 8, 2);
-      archLight.position.set(0, 1.3, 0);
-      group.add(archLight);
-      this.torches.push({ light: archLight, sprite: flameL, seed: Math.random() * 50 });
+      this.torches.push({ sprite: flameL, seed: Math.random() * 50, z });
 
       this.scene.add(group);
       return {
@@ -2363,6 +2370,10 @@
       this.coinsPool = [];
       this.powerupsPool = [];
       this.particles = [];
+      this.torches = [];
+      this._lastHudDist = -1;
+      this._lastHudCoins = -1;
+      this._lastHudMult = -1;
 
       this.distance = 0;
       this.coins = 0;
@@ -2470,19 +2481,18 @@
       const dt = Math.min(this.clock.getDelta(), 0.1);
       const time = this.clock.getElapsedTime();
 
-      // Flickering Torches
-      this.torches.forEach(t => {
-        const flicker = Math.sin(time * 12 + t.seed) * 0.35 + Math.cos(time * 24 + t.seed) * 0.2;
-        t.light.intensity = 1.35 + flicker;
-        t.sprite.scale.y = 1.8 + flicker * 0.3;
-      });
+      // Flickering Torches (lightweight sprite billboard scaling)
+      for (let i = 0; i < this.torches.length; i++) {
+        const t = this.torches[i];
+        t.sprite.scale.y = 1.8 + Math.sin(time * 12 + t.seed) * 0.35;
+      }
 
       if (this.state === 'PLAYING') {
         this.updateGameplay(dt, time);
       } else if (this.state === 'START') {
-        this.cat.tailSegments.forEach((seg, i) => {
-          seg.rotation.y = Math.sin(time * 2 + i) * 0.15;
-        });
+        for (let i = 0; i < this.cat.tailSegments.length; i++) {
+          this.cat.tailSegments[i].rotation.y = Math.sin(time * 2 + i) * 0.15;
+        }
       }
 
       this.updateParticles(dt);
@@ -2632,26 +2642,35 @@
       this.dirLight.position.z = this.cat.mesh.position.z + 10;
       this.dirLight.target = this.cat.mesh;
 
+      if (this.catLanternLight) {
+        this.catLanternLight.position.set(
+          this.cat.mesh.position.x,
+          this.cat.mesh.position.y + 2.2,
+          this.cat.mesh.position.z + 1.2
+        );
+        this.catLanternLight.intensity = 1.6 + Math.sin(time * 14) * 0.25;
+      }
+
       // 10. Check Collisions & Track Recycle
       this.checkCollisions();
       this.recycleTrack();
       this.updateHUD();
     }
 
-    /* --- Collision Detection (Box3 & Radial Magnet) --- */
+    /* --- Collision Detection (Box3 & Radial Magnet - GC-free) --- */
     checkCollisions() {
       const catPos = this.cat.mesh.position;
       const catH = this.isSliding ? 0.45 : 1.35;
       const catYBottom = catPos.y + (this.isSliding ? 0.05 : 0.1);
 
-      const catBox = new THREE.Box3(
-        new THREE.Vector3(catPos.x - 0.45, catYBottom, catPos.z - 0.65),
-        new THREE.Vector3(catPos.x + 0.45, catYBottom + catH, catPos.z + 0.65)
-      );
+      this._catBox.min.set(catPos.x - 0.45, catYBottom, catPos.z - 0.65);
+      this._catBox.max.set(catPos.x + 0.45, catYBottom + catH, catPos.z + 0.65);
 
       // A. Obstacle Collisions
-      for (const chunk of this.chunks) {
-        for (const obs of chunk.obstacles) {
+      for (let c = 0; c < this.chunks.length; c++) {
+        const chunk = this.chunks[c];
+        for (let o = 0; o < chunk.obstacles.length; o++) {
+          const obs = chunk.obstacles[o];
           if (obs.cleared) continue;
 
           const obsZ = obs.group.position.z;
@@ -2669,18 +2688,16 @@
             continue;
           }
 
-          obs.box.set(
-            new THREE.Vector3(obs.bounds.minX, obs.bounds.minY, obs.bounds.minZ),
-            new THREE.Vector3(obs.bounds.maxX, obs.bounds.maxY, obs.bounds.maxZ)
-          );
+          obs.box.min.set(obs.bounds.minX, obs.bounds.minY, obs.bounds.minZ);
+          obs.box.max.set(obs.bounds.maxX, obs.bounds.maxY, obs.bounds.maxZ);
 
-          if (catBox.intersectsBox(obs.box)) {
+          if (this._catBox.intersectsBox(obs.box)) {
             // Invincibility Shield Active -> Smash obstacle!
             if (this.activePowerup === 'SHIELD') {
               obs.cleared = true;
               this.scene.remove(obs.group);
               sound.playShieldSmash();
-              this.spawnDebris(catPos.x, 1.2, catPos.z, 0x85929e, 18);
+              this.spawnDebris(catPos.x, 1.2, catPos.z, 0x85929e, 14);
               this.coins += 5;
               continue;
             }
@@ -2744,21 +2761,24 @@
 
       // B. Coins Collection
       const isMagnet = this.activePowerup === 'MAGNET';
-      for (const coin of this.coinsPool) {
+      const catTargetY = catPos.y + 0.6;
+      for (let i = 0; i < this.coinsPool.length; i++) {
+        const coin = this.coinsPool[i];
         if (coin.collected) continue;
 
-        if (isMagnet) {
-          const distToCat = coin.mesh.position.distanceTo(catPos);
-          if (distToCat < 18.0) {
-            coin.mesh.position.lerp(new THREE.Vector3(catPos.x, catPos.y + 0.6, catPos.z), 0.22);
-          }
+        const dz = coin.mesh.position.z - catPos.z;
+        if (Math.abs(dz) > 22) continue; // Early culling for distant coins
+
+        if (isMagnet && Math.abs(dz) < 18) {
+          coin.mesh.position.x += (catPos.x - coin.mesh.position.x) * 0.22;
+          coin.mesh.position.y += (catTargetY - coin.mesh.position.y) * 0.22;
+          coin.mesh.position.z += (catPos.z - coin.mesh.position.z) * 0.22;
         }
 
         coin.mesh.rotation.y += 0.05;
 
         const dx = coin.mesh.position.x - catPos.x;
-        const dy = coin.mesh.position.y - (catPos.y + 0.6);
-        const dz = coin.mesh.position.z - catPos.z;
+        const dy = coin.mesh.position.y - catTargetY;
         const distSq = dx * dx + dy * dy + dz * dz;
 
         if (distSq < 1.4) {
@@ -2773,10 +2793,12 @@
       }
 
       // C. Power-ups Pickup
-      for (const p of this.powerupsPool) {
+      for (let i = 0; i < this.powerupsPool.length; i++) {
+        const p = this.powerupsPool[i];
         if (p.collected) continue;
         p.mesh.rotation.y += 0.04;
-        p.mesh.rotation.x = Math.sin(Date.now() * 0.003) * 0.2;
+        const pz = p.mesh.position.z - catPos.z;
+        if (Math.abs(pz) > 8) continue;
 
         const dist = p.mesh.position.distanceTo(catPos);
         if (dist < 1.6) {
@@ -2836,6 +2858,9 @@
         }
         return true;
       });
+
+      // Prune distant torches to prevent unbounded array growth
+      this.torches = this.torches.filter(t => t.z >= catZ - 35);
     }
 
     updateParticles(dt) {
@@ -2856,11 +2881,21 @@
       }
     }
 
-    /* --- HUD Updates --- */
+    /* --- HUD Updates (Throttled DOM writes) --- */
     updateHUD() {
-      this.hudDistance.textContent = `${Math.floor(this.distance)} m`;
-      this.hudCoins.textContent = this.coins;
-      this.hudMultiplier.textContent = `x${this.multiplier}`;
+      const distInt = Math.floor(this.distance);
+      if (distInt !== this._lastHudDist) {
+        this._lastHudDist = distInt;
+        this.hudDistance.textContent = `${distInt} m`;
+      }
+      if (this.coins !== this._lastHudCoins) {
+        this._lastHudCoins = this.coins;
+        this.hudCoins.textContent = this.coins;
+      }
+      if (this.multiplier !== this._lastHudMult) {
+        this._lastHudMult = this.multiplier;
+        this.hudMultiplier.textContent = `x${this.multiplier}`;
+      }
     }
   }
 
