@@ -105,6 +105,8 @@
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
+      position: relative;
+      width: 100%;
     }
 
     .hud-stat-box {
@@ -160,18 +162,24 @@
 
     /* Power-up Active Indicator */
     #powerup-container {
+      position: absolute;
+      left: 50%;
+      top: 14px;
+      transform: translateX(-50%) translateY(-25px);
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 8px;
       transition: all 0.3s ease;
       opacity: 0;
-      transform: translateY(-20px);
+      pointer-events: none;
+      z-index: 12;
     }
 
     #powerup-container.active {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
     }
 
     .powerup-pill {
@@ -488,35 +496,90 @@
       margin-top: 14px;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 768px), (orientation: portrait) {
       .temple-panel {
-        padding: 26px 20px;
+        padding: 24px 18px;
+        max-height: 92vh;
+        overflow-y: auto;
       }
       .game-title {
-        font-size: 28px;
+        font-size: 26px;
       }
       .game-subtitle {
         font-size: 13px;
+        margin-bottom: 14px;
+      }
+      .story-desc {
+        font-size: 13px;
+        padding: 10px 14px;
         margin-bottom: 16px;
       }
       .controls-grid {
         grid-template-columns: 1fr;
         gap: 8px;
+        margin-bottom: 16px;
+      }
+      .control-item {
+        padding: 8px 12px;
       }
       .mobile-hint {
         display: block;
       }
+      #hud {
+        padding: 10px 12px;
+      }
+      .hud-top {
+        flex-wrap: nowrap;
+        gap: 6px;
+        justify-content: space-between;
+        align-items: center;
+      }
       .hud-stat-box {
-        padding: 6px 12px;
+        padding: 5px 10px;
+        gap: 8px;
+        border-radius: 8px;
       }
       .hud-val {
-        font-size: 18px;
+        font-size: 16px;
+      }
+      .hud-label {
+        font-size: 9px;
+        letter-spacing: 1px;
       }
       .hud-icon {
-        font-size: 20px;
+        font-size: 18px;
+      }
+      .btn-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+      }
+      #powerup-container {
+        position: absolute;
+        left: 50%;
+        top: 66px;
+        transform: translateX(-50%) translateY(-20px);
+        width: auto;
+      }
+      #powerup-container.active {
+        transform: translateX(-50%) translateY(0);
+      }
+      #stumble-warning {
+        font-size: 11px;
+        padding: 6px 16px;
+        letter-spacing: 1px;
+        width: 90%;
+        text-align: center;
       }
     }
   </style>
+  <script>
+    if (window.location.search.includes('autostart')) {
+      const s = document.createElement('style');
+      s.textContent = '#start-screen { display: none !important; } #hud { display: flex !important; }';
+      document.head.appendChild(s);
+    }
+  </script>
 </head>
 <body>
 
@@ -1723,8 +1786,6 @@
       this.scene.fog = new THREE.FogExp2(0x08121a, 0.016);
 
       this.camera = new THREE.PerspectiveCamera(65, this.width / this.height, 0.1, 350);
-      this.camera.position.set(0, 4.8, -6.8);
-      this.camera.lookAt(0, 1.6, 5.0);
 
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
@@ -1737,6 +1798,8 @@
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.toneMappingExposure = 1.15;
+
+      this.updateCameraLayout();
 
       const ambientLight = new THREE.AmbientLight(0x2d4659, 0.95);
       this.scene.add(ambientLight);
@@ -1753,6 +1816,35 @@
       this.dirLight.shadow.camera.top = 22;
       this.dirLight.shadow.camera.bottom = -14;
       this.scene.add(this.dirLight);
+    }
+
+    // Dynamic camera framing for Portrait (Mobile) and Landscape (Desktop)
+    updateCameraLayout() {
+      this.width = window.innerWidth;
+      this.height = window.innerHeight;
+      const aspect = this.width / this.height;
+      this.isPortrait = aspect < 1.0;
+
+      if (this.isPortrait) {
+        // Vertical Smartphone Mode (Classic Temple Run perspective):
+        // Automatically calculate vertical FOV to maintain a wide horizontal view across all 3 lanes
+        const targetHFOV = 70 * (Math.PI / 180);
+        const vFOVRad = 2 * Math.atan(Math.tan(targetHFOV / 2) / Math.max(aspect, 0.42));
+        this.camera.fov = Math.min(Math.max((vFOVRad * 180) / Math.PI, 74), 88);
+        this.cameraYOffset = 5.5;
+        this.cameraZOffset = 7.6;
+      } else {
+        // Desktop / Landscape Mode
+        this.camera.fov = 65;
+        this.cameraYOffset = 4.8;
+        this.cameraZOffset = 6.8;
+      }
+
+      this.camera.aspect = aspect;
+      this.camera.updateProjectionMatrix();
+      if (this.renderer) {
+        this.renderer.setSize(this.width, this.height);
+      }
     }
 
     /* --- World & Entities Setup --- */
@@ -1781,6 +1873,7 @@
       for (let i = 0; i < ACTIVE_CHUNKS; i++) {
         this.spawnTrackChunk(i < 2);
       }
+      this.renderer.render(this.scene, this.camera);
     }
 
     /* --- Track Generation (Modular Suspended Bridge) --- */
@@ -2218,11 +2311,7 @@
 
       // Window Resize
       window.addEventListener('resize', () => {
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
-        this.camera.aspect = this.width / this.height;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(this.width, this.height);
+        this.updateCameraLayout();
       });
     }
 
@@ -2522,9 +2611,9 @@
       }
 
       // 9. Camera Dynamic Follow with Screen Shake on Stumble
-      const camTargetZ = this.cat.mesh.position.z - 6.8;
-      let camTargetX = this.cat.mesh.position.x * 0.45;
-      let camTargetY = 4.8 + (this.isSliding ? -0.4 : 0);
+      const camTargetZ = this.cat.mesh.position.z - (this.cameraZOffset || 6.8);
+      let camTargetX = this.cat.mesh.position.x * (this.isPortrait ? 0.35 : 0.45);
+      let camTargetY = (this.cameraYOffset || 4.8) + (this.isSliding ? -0.4 : 0);
 
       if (this.isStumbling) {
         camTargetX += (Math.random() - 0.5) * 0.16;
@@ -2534,7 +2623,11 @@
       this.camera.position.x += (camTargetX - this.camera.position.x) * dt * 9;
       this.camera.position.y += (camTargetY - this.camera.position.y) * dt * 9;
       this.camera.position.z = camTargetZ;
-      this.camera.lookAt(this.cat.mesh.position.x * 0.35, 1.6 + this.catY * 0.3, this.cat.mesh.position.z + 5.0);
+      this.camera.lookAt(
+        this.cat.mesh.position.x * 0.3,
+        1.6 + this.catY * 0.3,
+        this.cat.mesh.position.z + (this.isPortrait ? 6.2 : 5.0)
+      );
 
       this.dirLight.position.z = this.cat.mesh.position.z + 10;
       this.dirLight.target = this.cat.mesh;
@@ -2771,12 +2864,22 @@
     }
   }
 
-  window.addEventListener('DOMContentLoaded', () => {
-    const game = new GameApp();
-    if (new URLSearchParams(window.location.search).has('autostart')) {
-      game.startGame();
+  let gameInstance = null;
+  function initGame() {
+    if (gameInstance) return;
+    gameInstance = new GameApp();
+    if (window.location.search.includes('autostart')) {
+      document.getElementById('start-screen').style.display = 'none';
+      document.getElementById('hud').style.display = 'flex';
+      gameInstance.startGame();
     }
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initGame);
+  } else {
+    initGame();
+  }
   </script>
 </body>
 </html>
